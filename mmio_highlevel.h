@@ -4,13 +4,15 @@
 #include "mmio.h"
 
 #define STATS_ON
+#define PRINT_MAP
 
 #ifdef STATS_ON	
 #include <stdint.h>
 #include <cmath>
-#include <map>
 #include <iostream>
+#include <map>
 #include <vector>
+#include <set>
 #endif
 
 // read matrix infomation from mtx file
@@ -68,6 +70,11 @@ int mmio_info(int *m, int *n, int *nnz, int *isSymmetric, const char *filename,
     /*  (ANSI C X3.159-1989, Sec. 4.9.6.2, p. 136 lines 13-15)            */
 
     std::map<std::pair<uint64_t, uint64_t>, uint64_t > nonzerosPerBlockMap;
+    std::map<std::pair<uint64_t, uint64_t>, double > PerBlockDensityMap;
+    std::map<std::pair<uint64_t, uint64_t>, std::pair<int, int> >
+      nnzRowColCountPerBlockMap;
+    std::map<std::pair<uint64_t, uint64_t>, std::set<int> > nnzRowsPerBlockMap;
+    std::map<std::pair<uint64_t, uint64_t>, std::set<int> > nnzColsPerBlockMap;
     auto blockSize = blkSize;
     
     for (int i = 0; i < nnz_mtx_report; i++)
@@ -107,28 +114,84 @@ int mmio_info(int *m, int *n, int *nnz, int *isSymmetric, const char *filename,
 
 #ifdef STATS_ON	
 	auto blockIdxRowNum = floor (idxi / blockSize);
-	auto blockidxColNum = floor (idxj / blockSize);
+	auto blockIdxColNum = floor (idxj / blockSize);
 
 	auto search = nonzerosPerBlockMap.find(std::make_pair(blockIdxRowNum,
-							      blockidxColNum));
+							      blockIdxColNum));
 	if (search != nonzerosPerBlockMap.end()) {
 	  auto currentBlockNNZ = search->second;
 	  search->second = currentBlockNNZ + 1;
 	  // Needs c++17
 	  // nonzerosPerBlockMap.insert_or_assign(std::make_pair(blockIdxRowNum,
-	  //				       blockidxColNum),	currentBlockNNZ + 1);
+	  //				       blockIdxColNum),	currentBlockNNZ + 1);
 	} else {
-	  nonzerosPerBlockMap.emplace(std::make_pair(blockIdxRowNum, blockidxColNum),
+	  nonzerosPerBlockMap.emplace(std::make_pair(blockIdxRowNum, blockIdxColNum),
 				     1);
+	}
+
+	//record nnzRowIdx and nnzColIdx
+	auto foundRow = nnzRowsPerBlockMap.find(std::make_pair(blockIdxRowNum,
+							    blockIdxColNum));
+	if (foundRow != nnzRowsPerBlockMap.end()) {
+	  auto rowIdxSet = foundRow->second;
+	  rowIdxSet.insert(blockIdxRowNum);
+	} else {
+	  std::set<int> tempSet;
+	  tempSet.insert(blockIdxRowNum);
+	  nnzRowsPerBlockMap.emplace(std::make_pair(blockIdxRowNum, blockIdxColNum), tempSet);
+	}
+	
+	auto foundCol = nnzColsPerBlockMap.find(std::make_pair(blockIdxRowNum,
+							    blockIdxColNum));
+	if (foundCol != nnzColsPerBlockMap.end()) {
+	  auto colIdxSet = foundCol->second;
+	  colIdxSet.insert(blockIdxColNum);
+	} else {
+	  std::set<int> tempSet;
+	  tempSet.insert(blockIdxColNum);
+	  nnzColsPerBlockMap.emplace(std::make_pair(blockIdxRowNum, blockIdxColNum), tempSet);
 	}
     }
 
-#ifdef PRINT_MAP    
+    for (auto &p : nonzerosPerBlockMap) {
+      auto r  = p.first.first;
+      auto c = p.first.second;
+      // Get nnzRowCount for this block
+      auto nnzRowCount = nnzRowsPerBlockMap.find(std::make_pair(r, c))->second.size();
+      // Get nnzColCount for this block
+      auto nnzColCount = nnzColsPerBlockMap.find(std::make_pair(r, c))->second.size();
+      nnzRowColCountPerBlockMap.emplace(std::make_pair(r,c ),
+    					std::make_pair(nnzRowCount, nnzColCount));
+    }
+
+#ifdef PRINT_MAP
+    std::cout << "Printing total number of non-zero rows and cols per block" << std::endl;
+    for (const auto &p : nnzRowColCountPerBlockMap) {
+      std::cout << "(" << p.first.first << "," << p.first.second << ")" << "-->(" << p.second.first << "," << p.second.second << ")" << std::endl;
+    }
+#endif
+
+    
+
+#ifdef PRINT_MAP
+    std::cout << "Printing total number of non-zeros per block" << std::endl;
     for (const auto &p : nonzerosPerBlockMap) {
       std::cout << "(" << p.first.first << "," << p.first.second << ")" << "-->" << p.second << std::endl;
     }
 #endif
-    
+
+    // compute per-block density
+    for (const auto &p : nonzerosPerBlockMap) {
+      PerBlockDensityMap.emplace(std::make_pair(p.first.first, p.first.second),
+				 (double) p.second / (double) (blockSize * blockSize));
+    }
+
+#ifdef PRINT_MAP
+    std::cout << "Printing per block density" << std::endl;
+    for (const auto &p : PerBlockDensityMap) {
+      std::cout << "(" << p.first.first << "," << p.first.second << ")" << "-->" << p.second << std::endl;
+    }
+#endif    
     auto maxBlkNum = ceil (m_tmp / blockSize);
     auto totalNumZeroBlocks = 0;
     std::vector<std::pair<uint64_t, uint64_t> > zeroBlkIndices;
