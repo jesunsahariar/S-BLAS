@@ -3,10 +3,19 @@
 
 #include "mmio.h"
 
+#define STATS_ON
 
+#ifdef STATS_ON	
+#include <stdint.h>
+#include <cmath>
+#include <map>
+#include <iostream>
+#include <vector>
+#endif
 
 // read matrix infomation from mtx file
-int mmio_info(int *m, int *n, int *nnz, int *isSymmetric, const char *filename)
+int mmio_info(int *m, int *n, int *nnz, int *isSymmetric, const char *filename,
+	      uint64_t blkSize = 16)
 {
     int m_tmp, n_tmp, nnz_tmp;
 
@@ -58,6 +67,9 @@ int mmio_info(int *m, int *n, int *nnz, int *isSymmetric, const char *filename)
     /*   specifier as in "%lg", "%lf", "%le", otherwise errors will occur */
     /*  (ANSI C X3.159-1989, Sec. 4.9.6.2, p. 136 lines 13-15)            */
 
+    std::map<std::pair<uint64_t, uint64_t>, uint64_t > nonzerosPerBlockMap;
+    auto blockSize = blkSize;
+    
     for (int i = 0; i < nnz_mtx_report; i++)
     {
         int idxi, idxj;
@@ -92,8 +104,58 @@ int mmio_info(int *m, int *n, int *nnz, int *isSymmetric, const char *filename)
         csrRowIdx_tmp[i] = idxi;
         csrColIdx_tmp[i] = idxj;
         csrVal_tmp[i] = fval;
+
+#ifdef STATS_ON	
+	auto blockIdxRowNum = floor (idxi / blockSize);
+	auto blockidxColNum = floor (idxj / blockSize);
+
+	auto search = nonzerosPerBlockMap.find(std::make_pair(blockIdxRowNum,
+							      blockidxColNum));
+	if (search != nonzerosPerBlockMap.end()) {
+	  auto currentBlockNNZ = search->second;
+	  search->second = currentBlockNNZ + 1;
+	  // Needs c++17
+	  // nonzerosPerBlockMap.insert_or_assign(std::make_pair(blockIdxRowNum,
+	  //				       blockidxColNum),	currentBlockNNZ + 1);
+	} else {
+	  nonzerosPerBlockMap.emplace(std::make_pair(blockIdxRowNum, blockidxColNum),
+				     1);
+	}
     }
 
+#ifdef PRINT_MAP    
+    for (const auto &p : nonzerosPerBlockMap) {
+      std::cout << "(" << p.first.first << "," << p.first.second << ")" << "-->" << p.second << std::endl;
+    }
+#endif
+    
+    auto maxBlkNum = ceil (m_tmp / blockSize);
+    auto totalNumZeroBlocks = 0;
+    std::vector<std::pair<uint64_t, uint64_t> > zeroBlkIndices;
+    for (auto i = 0; i < maxBlkNum; i ++) {
+      for (auto j = 0; j < maxBlkNum; j++) {
+	auto search = nonzerosPerBlockMap.find(std::make_pair(i, j));
+	if (search == nonzerosPerBlockMap.end()) {
+	  zeroBlkIndices.push_back(std::make_pair(i,j));
+	  totalNumZeroBlocks++;
+	}
+      }
+    }
+
+    std::cout << "Total number of non-zero blocks: " << nonzerosPerBlockMap.size() << " and total number of zero-blocks: " << totalNumZeroBlocks << std::endl;
+
+    std::vector<uint64_t> histogram((blockSize + 1) * (blockSize + 1), 0);
+    for (const auto &blockStat : nonzerosPerBlockMap) {
+      histogram.at(blockStat.second) = histogram.at(blockStat.second) + 1;
+    }
+
+    for (auto i = 0; i < histogram.size(); i++) {
+      if (histogram.at(i) != 0) {
+	std::cout << "No of blocks containing elements " << i << " is "  << histogram[i] << std::endl;
+      }
+    }
+#endif
+    
     if (f != stdin)
         fclose(f);
 

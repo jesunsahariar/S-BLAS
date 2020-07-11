@@ -185,6 +185,3 @@ int main()
     spmvCsrTest(3.0,4.0,4);
     return 0;
 }
-
-
-

@@ -17,7 +17,7 @@ CUDA_SAMPLES_PATH ?= /usr/local/cuda/samples
 
 #compiler
 NVCC = $(CUDA_INSTALL_PATH)/bin/nvcc
-CC = g++
+CC = g++ -std=c++14
 
 #nvcc parameters
 NVCC_FLAGS = -O3 -w -m64 -gencode=arch=compute_70,code=compute_70 
@@ -28,7 +28,7 @@ NVCC_FLAGS = -O3 -w -m64 -gencode=arch=compute_70,code=compute_70
 CUDA_INCLUDES = -I$(CUDA_INSTALL_PATH)/include -I$(CUDA_SAMPLES_PATH)/common/inc
 CUDA_LIBS = -L$(CUDA_INSTALL_PATH)/lib64 -lcudart -lcusparse -Xcompiler -fopenmp -lnccl
 
-all: unit_test spmm_test
+all: unit_test spmm_test statistics
 
 unit_test: unit_test.cu matrix.h spmv.h spmm.h mmio_highlevel.h kernel.h utility.h
 	$(NVCC) -ccbin $(CC) $(NVCC_FLAGS) unit_test.cu  $(CUDA_INCLUDES) $(CUDA_LIBS) -o $@
@@ -36,6 +36,9 @@ unit_test: unit_test.cu matrix.h spmv.h spmm.h mmio_highlevel.h kernel.h utility
 spmm_test: spmm_test.cu matrix.h spmv.h spmm.h mmio_highlevel.h kernel.h utility.h
 	$(NVCC) -ccbin $(CC) $(NVCC_FLAGS) spmm_test.cu  $(CUDA_INCLUDES) $(CUDA_LIBS) -o $@
 
+statistics: statistics.cu matrix.h spmv.h spmm.h mmio_highlevel.h kernel.h utility.h
+	$(NVCC) -ccbin $(CC) $(NVCC_FLAGS) statistics.cu  $(CUDA_INCLUDES) $(CUDA_LIBS) -o $@
+
 clean:
-	rm unit_test spmm_test
+	rm unit_test spmm_test statistics
 
