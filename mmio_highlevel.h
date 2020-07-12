@@ -69,12 +69,12 @@ int mmio_info(int *m, int *n, int *nnz, int *isSymmetric, const char *filename,
     /*   specifier as in "%lg", "%lf", "%le", otherwise errors will occur */
     /*  (ANSI C X3.159-1989, Sec. 4.9.6.2, p. 136 lines 13-15)            */
 
-    std::map<std::pair<uint64_t, uint64_t>, uint64_t > nonzerosPerBlockMap;
-    std::map<std::pair<uint64_t, uint64_t>, double > PerBlockDensityMap;
-    std::map<std::pair<uint64_t, uint64_t>, std::pair<int, int> >
-      nnzRowColCountPerBlockMap;
+    std::map<std::pair<uint64_t, uint64_t>, uint64_t > totalNnzsPerBlockMap;
+    std::map<std::pair<uint64_t, uint64_t>, double > perBlockDensityMap;
     std::map<std::pair<uint64_t, uint64_t>, std::set<int> > nnzRowsPerBlockMap;
     std::map<std::pair<uint64_t, uint64_t>, std::set<int> > nnzColsPerBlockMap;
+    std::map<std::pair<uint64_t, uint64_t>, std::pair<int, int> >
+      nnzRowColCountPerBlockMap;
     auto blockSize = blkSize;
     
     for (int i = 0; i < nnz_mtx_report; i++)
@@ -115,51 +115,73 @@ int mmio_info(int *m, int *n, int *nnz, int *isSymmetric, const char *filename,
 #ifdef STATS_ON	
 	auto blockIdxRowNum = floor (idxi / blockSize);
 	auto blockIdxColNum = floor (idxj / blockSize);
-
-	auto search = nonzerosPerBlockMap.find(std::make_pair(blockIdxRowNum,
+#ifdef PRINT_ON
+	std::cout << "BlockIdxRowNum: " << blockIdxRowNum
+		  << ", BlockIdxColNum: " << blockIdxColNum << std::endl;
+#endif
+	auto search = totalNnzsPerBlockMap.find(std::make_pair(blockIdxRowNum,
 							      blockIdxColNum));
-	if (search != nonzerosPerBlockMap.end()) {
+	if (search != totalNnzsPerBlockMap.end()) {
 	  auto currentBlockNNZ = search->second;
 	  search->second = currentBlockNNZ + 1;
 	  // Needs c++17
-	  // nonzerosPerBlockMap.insert_or_assign(std::make_pair(blockIdxRowNum,
+	  // totalNnzsPerBlockMap.insert_or_assign(std::make_pair(blockIdxRowNum,
 	  //				       blockIdxColNum),	currentBlockNNZ + 1);
 	} else {
-	  nonzerosPerBlockMap.emplace(std::make_pair(blockIdxRowNum, blockIdxColNum),
+	  totalNnzsPerBlockMap.emplace(std::make_pair(blockIdxRowNum, blockIdxColNum),
 				     1);
 	}
 
 	//record nnzRowIdx and nnzColIdx
-	auto foundRow = nnzRowsPerBlockMap.find(std::make_pair(blockIdxRowNum,
+	auto foundBlk = nnzRowsPerBlockMap.find(std::make_pair(blockIdxRowNum,
 							    blockIdxColNum));
-	if (foundRow != nnzRowsPerBlockMap.end()) {
-	  auto rowIdxSet = foundRow->second;
-	  rowIdxSet.insert(blockIdxRowNum);
+	if (foundBlk != nnzRowsPerBlockMap.end()) {
+	  // auto rowIdxSet = foundBlk->second;
+	  auto rowNum = idxi % blockSize;
+	  // std::cout << "rowNum: " << rowNum << std::endl;
+	  foundBlk->second.insert(rowNum);
+	  /* for (auto &p: rowIdxSet) {std::cout << "set r: " << p << " ";} */
+	  /* std::cout << std::endl; */
 	} else {
 	  std::set<int> tempSet;
-	  tempSet.insert(blockIdxRowNum);
+	  auto rowNum = idxi % blockSize;
+	  // std::cout << "rowNum: " << rowNum << std::endl;
+	  tempSet.insert(rowNum);
 	  nnzRowsPerBlockMap.emplace(std::make_pair(blockIdxRowNum, blockIdxColNum), tempSet);
 	}
 	
-	auto foundCol = nnzColsPerBlockMap.find(std::make_pair(blockIdxRowNum,
+	foundBlk = nnzColsPerBlockMap.find(std::make_pair(blockIdxRowNum,
 							    blockIdxColNum));
-	if (foundCol != nnzColsPerBlockMap.end()) {
-	  auto colIdxSet = foundCol->second;
-	  colIdxSet.insert(blockIdxColNum);
+	if (foundBlk != nnzColsPerBlockMap.end()) {
+	  // auto colIdxSet = foundBlk->second;
+	  auto colNum = idxj % blockSize;
+	  // std::cout << "colNum: " << colNum << std::endl;
+	  foundBlk->second.insert(colNum);
+	  //std::cout << "colNum: " << colNum << " And set size: " << colIdxSet.size() << std::endl;
+	  /* for (auto &p: colIdxSet) {std::cout << "set c: " << p << " ";} */
+	  /* std::cout << std::endl; */
 	} else {
 	  std::set<int> tempSet;
-	  tempSet.insert(blockIdxColNum);
+	  auto colNum = idxj % blockSize;
+	  // std::cout << "colNum: " << colNum << std::endl;
+	  tempSet.insert(colNum);
 	  nnzColsPerBlockMap.emplace(std::make_pair(blockIdxRowNum, blockIdxColNum), tempSet);
 	}
     }
 
-    for (auto &p : nonzerosPerBlockMap) {
+    for (auto &p : totalNnzsPerBlockMap) {
       auto r  = p.first.first;
       auto c = p.first.second;
       // Get nnzRowCount for this block
       auto nnzRowCount = nnzRowsPerBlockMap.find(std::make_pair(r, c))->second.size();
+      /* for (auto &q : nnzRowsPerBlockMap.find(std::make_pair(r, c))->second) { */
+      /* 	//for (auto &r : q) */
+      /* 	  std::cout << q << " "; */
+      /* 	std::cout << std::endl; */
+      /* } */
       // Get nnzColCount for this block
       auto nnzColCount = nnzColsPerBlockMap.find(std::make_pair(r, c))->second.size();
+      // std::cout << nnzRowCount << " " << nnzColCount << std::endl;
       nnzRowColCountPerBlockMap.emplace(std::make_pair(r,c ),
     					std::make_pair(nnzRowCount, nnzColCount));
     }
@@ -175,20 +197,20 @@ int mmio_info(int *m, int *n, int *nnz, int *isSymmetric, const char *filename,
 
 #ifdef PRINT_MAP
     std::cout << "Printing total number of non-zeros per block" << std::endl;
-    for (const auto &p : nonzerosPerBlockMap) {
+    for (const auto &p : totalNnzsPerBlockMap) {
       std::cout << "(" << p.first.first << "," << p.first.second << ")" << "-->" << p.second << std::endl;
     }
 #endif
 
     // compute per-block density
-    for (const auto &p : nonzerosPerBlockMap) {
-      PerBlockDensityMap.emplace(std::make_pair(p.first.first, p.first.second),
+    for (const auto &p : totalNnzsPerBlockMap) {
+      perBlockDensityMap.emplace(std::make_pair(p.first.first, p.first.second),
 				 (double) p.second / (double) (blockSize * blockSize));
     }
 
 #ifdef PRINT_MAP
     std::cout << "Printing per block density" << std::endl;
-    for (const auto &p : PerBlockDensityMap) {
+    for (const auto &p : perBlockDensityMap) {
       std::cout << "(" << p.first.first << "," << p.first.second << ")" << "-->" << p.second << std::endl;
     }
 #endif    
@@ -197,18 +219,18 @@ int mmio_info(int *m, int *n, int *nnz, int *isSymmetric, const char *filename,
     std::vector<std::pair<uint64_t, uint64_t> > zeroBlkIndices;
     for (auto i = 0; i < maxBlkNum; i ++) {
       for (auto j = 0; j < maxBlkNum; j++) {
-	auto search = nonzerosPerBlockMap.find(std::make_pair(i, j));
-	if (search == nonzerosPerBlockMap.end()) {
+	auto search = totalNnzsPerBlockMap.find(std::make_pair(i, j));
+	if (search == totalNnzsPerBlockMap.end()) {
 	  zeroBlkIndices.push_back(std::make_pair(i,j));
 	  totalNumZeroBlocks++;
 	}
       }
     }
 
-    std::cout << "Total number of non-zero blocks: " << nonzerosPerBlockMap.size() << " and total number of zero-blocks: " << totalNumZeroBlocks << std::endl;
+    std::cout << "Total number of non-zero blocks: " << totalNnzsPerBlockMap.size() << " and total number of zero-blocks: " << totalNumZeroBlocks << std::endl;
 
     std::vector<uint64_t> histogram((blockSize + 1) * (blockSize + 1), 0);
-    for (const auto &blockStat : nonzerosPerBlockMap) {
+    for (const auto &blockStat : totalNnzsPerBlockMap) {
       histogram.at(blockStat.second) = histogram.at(blockStat.second) + 1;
     }
 
