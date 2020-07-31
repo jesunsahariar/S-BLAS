@@ -25,6 +25,9 @@
 #include "utility.h"
 #include "kernel.h"
 
+#include "types.h"
+#include "structs.h"
+
 using namespace std;
 
 //Multi-GPU sparse data sharing policy:
@@ -318,10 +321,10 @@ public:
        SAFE_FREE_HOST(starting_row_gpu);
        SAFE_FREE_HOST(stoping_row_gpu);
    }
- CsrSparseMatrix(const char* filename, uint64_t blockSize = 16) : policy(none), n_gpu(0)
+ CsrSparseMatrix(const char* filename) : policy(none), n_gpu(0)
    {
        int m=0, n=0, nnzA=0, isSymmetricA;
-       mmio_info(&m, &n, &nnzA, &isSymmetricA, filename, blockSize);
+       mmio_info(&m, &n, &nnzA, &isSymmetricA, filename);
        this->height = (IdxType)m;
        this->width = (IdxType)n;
        this->nnz = (IdxType)nnzA;
@@ -331,6 +334,7 @@ public:
        int* csrRowPtrA = (int *)malloc((m+1) * sizeof(int));
        int* csrColIdxA = (int *)malloc(nnzA * sizeof(int));
        double* csrValA = (double *)malloc(nnzA * sizeof(double));
+
        mmio_data(csrRowPtrA, csrColIdxA, csrValA, filename);
        printf("input matrix A: ( %i, %i ) nnz = %i\n", m, n, nnzA);
        for (int i=0; i<m+1; i++)
@@ -352,6 +356,110 @@ public:
        this->starting_row_gpu = NULL;
        this->stoping_row_gpu = NULL;
    }
+
+   CsrSparseMatrix(const char* filename, uint64_t blockSize) : policy(none), n_gpu(0)
+   {
+       int m=0, n=0, nnzA=0, isSymmetricA;
+       mmio_info(&m, &n, &nnzA, &isSymmetricA, filename, blockSize);
+       this->height = (IdxType)m;
+       this->width = (IdxType)n;
+       this->nnz = (IdxType)nnzA;
+       SAFE_ALOC_HOST(this->csrRowPtr,get_row_ptr_size());
+       SAFE_ALOC_HOST(this->csrColIdx,get_col_idx_size());
+       SAFE_ALOC_HOST(this->csrVal,get_val_size());
+       int* csrRowPtrA = (int *)malloc((m+1) * sizeof(int));
+       int* csrColIdxA = (int *)malloc(nnzA * sizeof(int));
+       double* csrValA = (double *)malloc(nnzA * sizeof(double));
+
+       mmio_data(csrRowPtrA, csrColIdxA, csrValA, filename);
+       printf("input matrix A: ( %i, %i ) nnz = %i\n", m, n, nnzA);
+       for (int i=0; i<m+1; i++)
+       {
+           this->csrRowPtr[i] = (IdxType)csrRowPtrA[i];
+       }
+       for (int i=0; i<nnzA; i++)
+       {
+           this->csrColIdx[i] = (IdxType)csrColIdxA[i];
+           this->csrVal[i] = (DataType)csrValA[i];
+       }
+       free(csrRowPtrA);
+       free(csrColIdxA);
+       free(csrValA);
+       this->csrRowPtr_gpu = NULL;
+       this->csrColIdx_gpu = NULL;
+       this->csrVal_gpu = NULL;
+       this->nnz_gpu = NULL;
+       this->starting_row_gpu = NULL;
+       this->stoping_row_gpu = NULL;
+   }
+
+   CsrSparseMatrix(const char* filename, uint64_t blockSize, int usehicoo) : policy(none), n_gpu(0)
+   {
+       int m=0, n=0, nnzA=0, isSymmetricA;
+       mmio_info(&m, &n, &nnzA, &isSymmetricA, filename, blockSize);
+       this->height = (IdxType)m;
+       this->width = (IdxType)n;
+       this->nnz = (IdxType)nnzA;
+       SAFE_ALOC_HOST(this->csrRowPtr,get_row_ptr_size());
+       SAFE_ALOC_HOST(this->csrColIdx,get_col_idx_size());
+       SAFE_ALOC_HOST(this->csrVal,get_val_size());
+       int* csrRowPtrA = (int *)malloc((m+1) * sizeof(int));
+       int* csrColIdxA = (int *)malloc(nnzA * sizeof(int));
+       double* csrValA = (double *)malloc(nnzA * sizeof(double));
+
+       sptSparseMatrix mtx;
+       FILE *fi;
+       if ((fi = fopen(filename, "r")) == NULL)
+        return;
+       sptAssert(sptLoadSparseMatrix(&mtx, 1, fi));
+       fclose(fi);
+       sptRandomValueVector(&(mtx.values));    // to better compare results
+       sptSparseMatrixStatus(&mtx, stdout);
+       printf("Input COO Matrix\n");
+       sptAssert(sptDumpSparseMatrix(&mtx, 0, stdout) == 0);
+
+       sptNnzIndex max_nnzb = 0;
+       sptSparseMatrixHiCOO himtx;
+       sptNnzIndex * bptr; // non-zero block pointers
+       sptElementIndex sb_bits = 7;    // block size
+       // sptStartTimer(timer);
+       sptNewSparseMatrixHiCOO(&himtx, mtx.nrows, mtx.ncols, mtx.nnz, sb_bits, sb_bits);
+       // Natural block sorting
+       sptSparseMatrixSortIndexRowBlock(&mtx, 1, 0, mtx.nnz, sb_bits);  // OMP-Parallelized inside
+       // Morton-order block sorting
+       // sptSparseMatrixSortIndexMorton(&mtx, 1, 0, mtx.nnz, sb_bits);  // OMP-Parallelized inside
+       sptAppendNnzIndexVector(&himtx.kptr, 0);
+       sptAppendNnzIndexVector(&himtx.kptr, mtx.nnz); 
+       sptSparseMatrixPartition(&himtx, &max_nnzb, &mtx, sb_bits);   // Create a HiCOO matrix underneath
+       bptr = himtx.bptr.data; // Extract block pointers from HiCOO matrix struct
+       printf("Block pointers:\n");
+       sptAssert(sptDumpNnzIndexArray(bptr, himtx.bptr.len, stdout) == 0);
+       sptFreeSparseMatrixHiCOO(&himtx);
+       sptFreeSparseMatrix(&mtx);
+
+       
+       mmio_data(csrRowPtrA, csrColIdxA, csrValA, filename);
+       printf("input matrix A: ( %i, %i ) nnz = %i\n", m, n, nnzA);
+       for (int i=0; i<m+1; i++)
+       {
+           this->csrRowPtr[i] = (IdxType)csrRowPtrA[i];
+       }
+       for (int i=0; i<nnzA; i++)
+       {
+           this->csrColIdx[i] = (IdxType)csrColIdxA[i];
+           this->csrVal[i] = (DataType)csrValA[i];
+       }
+       free(csrRowPtrA);
+       free(csrColIdxA);
+       free(csrValA);
+       this->csrRowPtr_gpu = NULL;
+       this->csrColIdx_gpu = NULL;
+       this->csrVal_gpu = NULL;
+       this->nnz_gpu = NULL;
+       this->starting_row_gpu = NULL;
+       this->stoping_row_gpu = NULL;
+   }
+   
    void sync2gpu(unsigned _n_gpu, enum GpuSharePolicy _policy)
    {
         this->n_gpu = _n_gpu;

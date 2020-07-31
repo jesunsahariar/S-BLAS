@@ -2,6 +2,13 @@
 #define _MMIO_HIGHLEVEL_
 
 #include "mmio.h"
+#include "structs.h"
+
+/* #include <HiParTI.h> */
+/* #include <assert.h> */
+/* #include <stdio.h> */
+/* #include <stdlib.h> */
+#include "vectors.h"
 
 #define STATS_ON
 #define PRINT_MAP
@@ -115,7 +122,7 @@ int mmio_info(int *m, int *n, int *nnz, int *isSymmetric, const char *filename,
 #ifdef STATS_ON	
 	auto blockIdxRowNum = floor (idxi / blockSize);
 	auto blockIdxColNum = floor (idxj / blockSize);
-#ifdef PRINT_ON
+#if 0 // PRINT_ON
 	std::cout << "BlockIdxRowNum: " << blockIdxRowNum
 		  << ", BlockIdxColNum: " << blockIdxColNum << std::endl;
 #endif
@@ -136,16 +143,13 @@ int mmio_info(int *m, int *n, int *nnz, int *isSymmetric, const char *filename,
 	auto foundBlk = nnzRowsPerBlockMap.find(std::make_pair(blockIdxRowNum,
 							    blockIdxColNum));
 	if (foundBlk != nnzRowsPerBlockMap.end()) {
-	  // auto rowIdxSet = foundBlk->second;
 	  auto rowNum = idxi % blockSize;
-	  // std::cout << "rowNum: " << rowNum << std::endl;
 	  foundBlk->second.insert(rowNum);
 	  /* for (auto &p: rowIdxSet) {std::cout << "set r: " << p << " ";} */
 	  /* std::cout << std::endl; */
 	} else {
 	  std::set<int> tempSet;
 	  auto rowNum = idxi % blockSize;
-	  // std::cout << "rowNum: " << rowNum << std::endl;
 	  tempSet.insert(rowNum);
 	  nnzRowsPerBlockMap.emplace(std::make_pair(blockIdxRowNum, blockIdxColNum), tempSet);
 	}
@@ -153,17 +157,13 @@ int mmio_info(int *m, int *n, int *nnz, int *isSymmetric, const char *filename,
 	foundBlk = nnzColsPerBlockMap.find(std::make_pair(blockIdxRowNum,
 							    blockIdxColNum));
 	if (foundBlk != nnzColsPerBlockMap.end()) {
-	  // auto colIdxSet = foundBlk->second;
 	  auto colNum = idxj % blockSize;
-	  // std::cout << "colNum: " << colNum << std::endl;
 	  foundBlk->second.insert(colNum);
-	  //std::cout << "colNum: " << colNum << " And set size: " << colIdxSet.size() << std::endl;
 	  /* for (auto &p: colIdxSet) {std::cout << "set c: " << p << " ";} */
 	  /* std::cout << std::endl; */
 	} else {
 	  std::set<int> tempSet;
 	  auto colNum = idxj % blockSize;
-	  // std::cout << "colNum: " << colNum << std::endl;
 	  tempSet.insert(colNum);
 	  nnzColsPerBlockMap.emplace(std::make_pair(blockIdxRowNum, blockIdxColNum), tempSet);
 	}
@@ -451,6 +451,98 @@ int mmio_data(int *csrRowPtr, int *csrColIdx, double *csrVal, const char *filena
     free(csrRowPtr_counter);
 
     return 0;
+}
+
+int sptLoadSparseMatrix(sptSparseMatrix *mtx, sptIndex start_index, FILE *fid)
+{
+    MM_typecode matcode;
+    int iores, retval;
+
+    if (mm_read_banner(fid, &matcode) != 0){
+        printf("Could not process Matrix Market banner.\n");
+        exit(1);
+    }
+
+    if (!mm_is_valid(matcode)){
+        printf("Invalid Matrix Market file.\n");
+        exit(1);
+    }
+
+    if (!((mm_is_real(matcode) || mm_is_integer(matcode) || mm_is_pattern(matcode)) && mm_is_coordinate(matcode) && mm_is_sparse(matcode) ) ){
+        printf("Sorry, this application does not support ");
+        printf("Market Market type: [%s]\n", mm_typecode_to_str(matcode));
+        printf("Only sparse real-valued or pattern coordinate matrices are supported\n");
+        exit(1);
+    }
+
+    int num_rows, num_cols, num_nonzeros;
+    if ( mm_read_mtx_crd_size(fid,&num_rows,&num_cols,&num_nonzeros) !=0)
+            exit(1);
+
+    mtx->nrows     = (sptIndex) num_rows;
+    mtx->ncols     = (sptIndex) num_cols;
+    mtx->nnz = (sptNnzIndex) num_nonzeros;
+
+    retval = sptNewIndexVector(&mtx->rowind, mtx->nnz, mtx->nnz);
+    spt_CheckOSError(iores < 0, "SpMtx Load");
+    retval = sptNewIndexVector(&mtx->colind, mtx->nnz, mtx->nnz);
+    spt_CheckOSError(iores < 0, "SpMtx Load");
+    retval = sptNewValueVector(&mtx->values, mtx->nnz, mtx->nnz);
+    spt_CheckError(retval, "SpMtx Load", NULL);
+
+    char strI[64], strJ[64], strV[64];
+    if (mm_is_pattern(matcode)){
+        // pattern matrix defines sparsity pattern, but not values
+        for( sptNnzIndex i = 0; i < mtx->nnz; i++ ) {
+            fscanf(fid, "%s %s\n", strI, strJ);
+            mtx->rowind.data[i] = (sptIndex) (atoi(strI)) - 1;
+            mtx->colind.data[i] = (sptIndex) (atoi(strJ)) - 1;
+            mtx->values.data[i] = 1.0;  //use value 1.0 for all nonzero entries
+        }
+    } else if (mm_is_real(matcode) || mm_is_integer(matcode)){
+        for( sptNnzIndex i = 0; i < mtx->nnz; i++ ) {
+            fscanf(fid, "%s %s %s\n", strI, strJ, strV);
+            mtx->rowind.data[i] = (sptIndex) (atoi(strI)) - 1;
+            mtx->colind.data[i] = (sptIndex) (atoi(strJ)) - 1;
+            mtx->values.data[i] = (sptValue) (atof(strV));
+        }
+    } else {
+        printf("Unrecognized data type\n");
+        exit(1);
+    }
+
+    if( mm_is_symmetric(matcode) ){ //duplicate off diagonal entries
+        sptIndex off_diagonals = 0;
+        for( sptNnzIndex i = 0; i < mtx->nnz; i++ ){
+            if( mtx->rowind.data[i] != mtx->colind.data[i] )
+                off_diagonals++;
+        }
+
+        sptNnzIndex true_nonzeros = 2*off_diagonals + (mtx->nnz - off_diagonals);
+
+        sptIndex* new_I = (sptIndex*)malloc(true_nonzeros * sizeof(sptIndex));
+        sptIndex* new_J = (sptIndex*)malloc(true_nonzeros * sizeof(sptIndex));
+        sptValue * new_V = (sptValue*)malloc(true_nonzeros * sizeof(sptValue));
+
+        sptNnzIndex ptr = 0;
+        for( sptNnzIndex i = 0; i < mtx->nnz; i++ ){
+            if( mtx->rowind.data[i] != mtx->colind.data[i] ){
+                new_I[ptr] = mtx->rowind.data[i];  new_J[ptr] = mtx->colind.data[i];  new_V[ptr] = mtx->values.data[i];
+                ptr++;
+                new_J[ptr] = mtx->rowind.data[i];  new_I[ptr] = mtx->colind.data[i];  new_V[ptr] = mtx->values.data[i];
+                ptr++;
+            } else {
+                new_I[ptr] = mtx->rowind.data[i];  new_J[ptr] = mtx->colind.data[i];  new_V[ptr] = mtx->values.data[i];
+                ptr++;
+            }
+        }
+         free(mtx->rowind.data); free(mtx->colind.data); free(mtx->values.data);
+         mtx->rowind.data = new_I;  mtx->colind.data = new_J; mtx->values.data = new_V;
+         mtx->nnz = true_nonzeros;
+    } //end symmetric case
+
+    return 0;
+
 }
 
 #endif

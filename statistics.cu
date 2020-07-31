@@ -17,8 +17,9 @@ int main(int argc, char** argv) {
   }
 
   // CsrSparseMatrix<unsigned,double> csrMtx2("./ash85.mtx");
-
-  CsrSparseMatrix<unsigned,double> csrMtx(matrixFile.c_str(), blockSize);
+  auto usehicoo = 1;
+  // CsrSparseMatrix<unsigned,double> csrMtx(matrixFile.c_str(), blockSize);
+  CsrSparseMatrix<unsigned,double> csrMtx(matrixFile.c_str(), blockSize, usehicoo);
   // CsrSparseMatrix<unsigned,double> csrMtx("./data/citHepPh/citHepPh.mtx", blockSize);
   return 0;
 }
