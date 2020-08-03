@@ -140,7 +140,7 @@ void spt_Panic(const char *file, unsigned line, const char *expr) {
     abort();
 }
 
-#define sptAssert(expr) ((expr) ? (void) 0 : spt_Panic(__FILE__, __LINE__, #expr))
+#define sptAssert(expr) ((expr) ? (void) true : spt_Panic(__FILE__, __LINE__, #expr))
   
 /**
  * Get the last error code and message.

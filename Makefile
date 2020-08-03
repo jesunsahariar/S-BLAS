@@ -20,10 +20,10 @@ NVCC = $(CUDA_INSTALL_PATH)/bin/nvcc
 CC = g++ -std=c++14
 
 #nvcc parameters
-NVCC_FLAGS = -O3 -w -m64 -gencode=arch=compute_70,code=compute_70 
+#NVCC_FLAGS = -O3 -w -m64 -gencode=arch=compute_70,code=compute_70 
 
 #debugging
-#NVCC_FLAGS = -O0 -g -G -m64 -gencode=arch=compute_70,code=compute_70 
+NVCC_FLAGS = -O0 -g -G -m64 -gencode=arch=compute_70,code=compute_70 
 
 #include directory
 INC=./include

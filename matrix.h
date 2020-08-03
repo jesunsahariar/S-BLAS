@@ -411,7 +411,7 @@ public:
        FILE *fi;
        if ((fi = fopen(filename, "r")) == NULL)
         return;
-       sptAssert(sptLoadSparseMatrix(&mtx, 1, fi));
+       sptAssert(sptLoadSparseMatrix(&mtx, 1, fi) == 0);
        fclose(fi);
        sptRandomValueVector(&(mtx.values));    // to better compare results
        sptSparseMatrixStatus(&mtx, stdout);
@@ -421,7 +421,7 @@ public:
        sptNnzIndex max_nnzb = 0;
        sptSparseMatrixHiCOO himtx;
        sptNnzIndex * bptr; // non-zero block pointers
-       sptElementIndex sb_bits = 7;    // block size
+       sptElementIndex sb_bits = 6;    // block size
        // sptStartTimer(timer);
        sptNewSparseMatrixHiCOO(&himtx, mtx.nrows, mtx.ncols, mtx.nnz, sb_bits, sb_bits);
        // Natural block sorting
@@ -429,7 +429,7 @@ public:
        // Morton-order block sorting
        // sptSparseMatrixSortIndexMorton(&mtx, 1, 0, mtx.nnz, sb_bits);  // OMP-Parallelized inside
        sptAppendNnzIndexVector(&himtx.kptr, 0);
-       sptAppendNnzIndexVector(&himtx.kptr, mtx.nnz); 
+       sptAppendNnzIndexVector(&himtx.kptr, mtx.nnz);
        sptSparseMatrixPartition(&himtx, &max_nnzb, &mtx, sb_bits);   // Create a HiCOO matrix underneath
        bptr = himtx.bptr.data; // Extract block pointers from HiCOO matrix struct
        printf("Block pointers:\n");
@@ -438,20 +438,20 @@ public:
        sptFreeSparseMatrix(&mtx);
 
        
-       mmio_data(csrRowPtrA, csrColIdxA, csrValA, filename);
-       printf("input matrix A: ( %i, %i ) nnz = %i\n", m, n, nnzA);
-       for (int i=0; i<m+1; i++)
-       {
-           this->csrRowPtr[i] = (IdxType)csrRowPtrA[i];
-       }
-       for (int i=0; i<nnzA; i++)
-       {
-           this->csrColIdx[i] = (IdxType)csrColIdxA[i];
-           this->csrVal[i] = (DataType)csrValA[i];
-       }
-       free(csrRowPtrA);
-       free(csrColIdxA);
-       free(csrValA);
+       /* mmio_data(csrRowPtrA, csrColIdxA, csrValA, filename); */
+       /* printf("input matrix A: ( %i, %i ) nnz = %i\n", m, n, nnzA); */
+       /* for (int i=0; i<m+1; i++) */
+       /* { */
+       /*     this->csrRowPtr[i] = (IdxType)csrRowPtrA[i]; */
+       /* } */
+       /* for (int i=0; i<nnzA; i++) */
+       /* { */
+       /*     this->csrColIdx[i] = (IdxType)csrColIdxA[i]; */
+       /*     this->csrVal[i] = (DataType)csrValA[i]; */
+       /* } */
+       /* free(csrRowPtrA); */
+       /* free(csrColIdxA); */
+       /* free(csrValA); */
        this->csrRowPtr_gpu = NULL;
        this->csrColIdx_gpu = NULL;
        this->csrVal_gpu = NULL;
