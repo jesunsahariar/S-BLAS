@@ -124,6 +124,8 @@ typedef struct {
     sptNnzIndexVector         kptr;      /// Nonzero kernel pointers in 1-D array, indexing blocks. sptIndexVector may be enough
     sptIndexVector            *kschr;    /// Kernel scheduler
     sptIndex                  nkiters;     /// max-length of iterations
+
+
 } sptSparseMatrixHiCOO;
 
 
